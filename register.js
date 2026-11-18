@@ -86,6 +86,11 @@ function setFieldState(key, showError) {
     msg.textContent = "Checking if already registered…";
     return true;
   }
+  // Valid format, but we couldn't ask the sheet: neutral (no green tick), still allowed to submit
+  if (!error && status === "unverified") {
+    msg.textContent = "";
+    return true;
+  }
   if (error && showError) {
     field.classList.add("is-invalid");
     input.setAttribute("aria-invalid", "true");
@@ -135,9 +140,11 @@ function lookupAadhaar(d) {
   const p = callApi({ action: "check", aadhaar: d })
     .then((res) => {
       if (res.ok) aadhaarStatus.set(d, res.registered ? "taken" : "free");
-      else aadhaarStatus.delete(d); // e.g. older script without "check": fall back to the check on submit
+      // e.g. older script without "check": can't confirm yet, so no green tick.
+      // The check when Register is pressed still blocks duplicates.
+      else aadhaarStatus.set(d, "unverified");
     })
-    .catch(() => aadhaarStatus.delete(d)) // offline: the check on submit still protects us
+    .catch(() => aadhaarStatus.set(d, "unverified")) // offline: same as above
     .finally(() => {
       aadhaarLookups.delete(d);
       // Only update the field if the member hasn't typed a different number meanwhile
@@ -152,7 +159,10 @@ inputs.aadhaar.addEventListener("input", () => {
   clearTimeout(aadhaarTimer);
   pendingAadhaar = null;
   const d = onlyDigits(inputs.aadhaar.value);
-  if (d.length !== 12 || !isValidAadhaar(d) || aadhaarStatus.has(d)) return;
+  if (d.length !== 12 || !isValidAadhaar(d)) return;
+  const known = aadhaarStatus.get(d);
+  if (known && known !== "unverified") return; // already answered; "unverified" gets another try
+  aadhaarStatus.delete(d);
   pendingAadhaar = d;
   setFieldState("aadhaar", touched.has("aadhaar"));
   aadhaarTimer = setTimeout(() => {
