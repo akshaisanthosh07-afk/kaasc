@@ -1,0 +1,7 @@
+# Files that are not part of the website (kept out of the Vercel upload)
+.claude
+bg.html
+bg_files
+google-apps-script
+README.md
+kassclogo.png

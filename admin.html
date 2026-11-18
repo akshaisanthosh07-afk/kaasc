@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#e0f2fe" />
+  <link rel="icon" href="kassclogo-web.png" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Admin Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="demo-banner" hidden>
+    Demo mode: showing members saved on this device.
+  </div>
+
+  <!-- ===== Login ===== -->
+  <section class="admin-login photo-bg" id="loginView">
+    <form class="form-card login-card" id="loginForm" novalidate>
+      <img class="club-logo club-logo-sm" src="kassclogo-web.png" alt="Club logo" width="82" height="118" />
+      <h1><span data-club-name>KAASC Keezhillam</span> Admin</h1>
+      <p>Enter your admin key to view registered members.</p>
+
+      <div class="field" id="keyField">
+        <label for="adminKey">Admin key</label>
+        <div class="input-wrap">
+          <svg class="input-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+          <input id="adminKey" type="password" autocomplete="current-password" placeholder="••••••••" required aria-describedby="key-msg" />
+        </div>
+        <p class="msg" id="key-msg"></p>
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-block" id="loginBtn">
+        <span class="btn-label">Open dashboard</span>
+        <span class="spinner" aria-hidden="true"></span>
+      </button>
+      <a href="index.html" class="back">← Back to home</a>
+    </form>
+  </section>
+
+  <!-- ===== Dashboard ===== -->
+  <div id="dashView" hidden>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a href="index.html" aria-label="Home"><img class="hero-logo topbar-logo" src="kassclogo-web.png" alt="Club logo" width="30" height="43" /></a>
+        <div class="topbar-title"><span data-club-name>KAASC Keezhillam</span><small>Admin dashboard</small></div>
+        <div class="topbar-actions">
+          <a class="btn btn-ghost" id="sheetBtn" target="_blank" rel="noopener" hidden>
+            <svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16M4 15h16M10 3v18"/></svg><span>Google Sheet</span>
+          </a>
+          <button class="btn btn-ghost" id="logoutBtn">
+            <svg viewBox="0 0 24 24"><path d="M15 17l5-5-5-5M20 12H9M12 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7"/></svg><span>Log out</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="dash">
+      <div class="dash-head">
+        <div>
+          <h1>Registered members</h1>
+          <p id="lastSync">Loading…</p>
+        </div>
+        <div style="display:flex; gap:8px">
+          <button class="btn btn-ghost" id="refreshBtn">
+            <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5"/></svg>Refresh
+          </button>
+          <button class="btn btn-primary" id="exportBtn">
+            <svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Export CSV
+          </button>
+        </div>
+      </div>
+
+      <section class="stats" aria-label="Summary">
+        <div class="stat">
+          <div class="stat-icon"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M17 4a4 4 0 0 1 0 8M22 21a7 7 0 0 0-4-6.3"/></svg></div>
+          <div><div class="stat-label">Total members</div><div class="stat-value" id="statTotal">0</div></div>
+        </div>
+        <div class="stat">
+          <div class="stat-icon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></div>
+          <div><div class="stat-label">This month</div><div class="stat-value" id="statMonth">0</div></div>
+        </div>
+        <div class="stat">
+          <div class="stat-icon"><svg viewBox="0 0 24 24"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/></svg></div>
+          <div><div class="stat-label">Today</div><div class="stat-value" id="statToday">0</div></div>
+        </div>
+        <div class="stat">
+          <div class="stat-icon"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-8-8v8h8Z"/><path d="M15 3.5A8 8 0 0 1 20.5 9H15V3.5Z"/></svg></div>
+          <div><div class="stat-label">Average age</div><div class="stat-value" id="statAge">—</div></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="toolbar">
+          <label class="search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input type="search" id="searchInput" placeholder="Search name, phone, member ID or last 4 Aadhaar digits" aria-label="Search members" />
+          </label>
+          <select id="ageFilter" aria-label="Filter by age group">
+            <option value="">All ages</option>
+            <option value="0-17">Under 18</option>
+            <option value="18-30">18 – 30</option>
+            <option value="31-50">31 – 50</option>
+            <option value="51-200">Above 50</option>
+          </select>
+          <span class="result-count" id="resultCount"></span>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th><button data-sort="name">Member</button></th>
+                <th><button data-sort="aadhaar">Aadhaar</button></th>
+                <th><button data-sort="phone">Phone</button></th>
+                <th><button data-sort="dob">Date of birth</button></th>
+                <th><button data-sort="age">Age</button></th>
+                <th><button data-sort="timestamp" class="desc">Registered</button></th>
+                <th class="th-actions"><span class="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+        <div class="empty" id="emptyState" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M19 8v6M16 11h6"/></svg>
+          <h3 id="emptyTitle">No members yet</h3>
+          <p id="emptyText">Registrations will appear here as soon as people sign up.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ===== Delete confirmation ===== -->
+  <dialog class="sheet" id="deleteDialog" aria-labelledby="deleteTitle">
+    <form method="dialog" class="sheet-body">
+      <div class="sheet-icon danger" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13M9 7V4h6v3"/></svg>
+      </div>
+      <h2 id="deleteTitle">Delete this member?</h2>
+      <div class="sheet-member">
+        <span class="avatar" id="delAvatar"></span>
+        <div><strong id="delName"></strong><small id="delId"></small></div>
+      </div>
+      <p class="sheet-warn">This permanently removes their row from the Google Sheet. It can't be undone.</p>
+      <p class="sheet-error" id="delError" role="alert"></p>
+      <div class="sheet-actions">
+        <button type="submit" value="cancel" class="btn btn-ghost" id="delCancel">Cancel</button>
+        <button type="button" class="btn btn-danger" id="delConfirm">
+          <span class="btn-label">Delete member</span>
+          <span class="spinner" aria-hidden="true"></span>
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="config.js"></script>
+  <script src="common.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>
