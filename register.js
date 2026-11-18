@@ -12,6 +12,8 @@ const inputs = {
 };
 const consent = document.getElementById("consent");
 const touched = new Set();
+// Aadhaar numbers the server said are already registered (kept so the field stays red until changed)
+const registeredAadhaars = new Set();
 
 // Date limits: no future dates, nothing older than 120 years
 const today = new Date();
@@ -33,6 +35,7 @@ const validators = {
     if (!d) return "Please enter your Aadhaar number.";
     if (d.length < 12) return `Aadhaar must be 12 digits (${d.length}/12).`;
     if (!isValidAadhaar(d)) return "This doesn't look like a valid Aadhaar number. Please check.";
+    if (registeredAadhaars.has(d)) return "Member already registered";
     return "";
   },
   phone(v) {
@@ -157,6 +160,16 @@ form.addEventListener("submit", async (e) => {
   setLoading(true);
   try {
     const res = await callApi({ action: "register", data });
+    // Same Aadhaar already in the sheet: show it on the Aadhaar field itself.
+    // (The regex also catches the older script's wording.)
+    if (!res.ok && (res.code === "DUPLICATE_AADHAAR" || /already registered/i.test(res.error || ""))) {
+      registeredAadhaars.add(data.aadhaar);
+      touched.add("aadhaar");
+      setFieldState("aadhaar", true);
+      inputs.aadhaar.focus();
+      toast("Member already registered", "error");
+      return;
+    }
     if (!res.ok) throw new Error(res.error || "Registration failed.");
     showSuccess(data.name, res.memberId);
   } catch (err) {

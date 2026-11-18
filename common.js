@@ -83,7 +83,7 @@ async function demoApi({ action, data, key, id }) {
   const list = demoLoad();
   if (action === "register") {
     if (list.some((m) => m.aadhaar === data.aadhaar)) {
-      return { ok: false, error: "This Aadhaar number is already registered." };
+      return { ok: false, code: "DUPLICATE_AADHAAR", error: "Member already registered" };
     }
     const id = `${CONFIG.CLUB_NAME.toUpperCase().replace(/\s+/g, "")}-${String(list.length + 1).padStart(4, "0")}`;
     list.push({ id, timestamp: new Date().toISOString(), ...data, age: calcAge(data.dob) });

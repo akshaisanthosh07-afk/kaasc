@@ -59,11 +59,12 @@ function register(data) {
     const sheet = getSheet();
     const last = sheet.getLastRow();
 
-    // Prevent duplicate Aadhaar registrations
+    // Aadhaar must be unique: one membership per Aadhaar number.
+    // Checked inside the lock, so two people submitting at once can't both get through.
     if (last > 1) {
       const existing = sheet.getRange(2, 4, last - 1, 1).getValues();
       if (existing.some(function (r) { return String(r[0]).replace(/\D/g, '') === aadhaar; })) {
-        return { ok: false, error: 'This Aadhaar number is already registered.' };
+        return { ok: false, code: 'DUPLICATE_AADHAAR', error: 'Member already registered' };
       }
     }
 
