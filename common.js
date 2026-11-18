@@ -78,9 +78,12 @@ function demoSave(list) {
   try { localStorage.setItem(DEMO_STORE_KEY, JSON.stringify(list)); } catch {}
 }
 
-async function demoApi({ action, data, key, id }) {
+async function demoApi({ action, data, key, id, aadhaar }) {
   await new Promise((r) => setTimeout(r, 600)); // simulate network
   const list = demoLoad();
+  if (action === "check") {
+    return { ok: true, registered: list.some((m) => m.aadhaar === aadhaar) };
+  }
   if (action === "register") {
     if (list.some((m) => m.aadhaar === data.aadhaar)) {
       return { ok: false, code: "DUPLICATE_AADHAAR", error: "Member already registered" };

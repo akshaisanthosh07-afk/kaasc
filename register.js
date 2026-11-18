@@ -12,8 +12,12 @@ const inputs = {
 };
 const consent = document.getElementById("consent");
 const touched = new Set();
-// Aadhaar numbers the server said are already registered (kept so the field stays red until changed)
-const registeredAadhaars = new Set();
+// Live "already registered?" lookups, by Aadhaar digits:
+//   "checking" (asking the sheet) | "taken" (already a member) | "free"
+const aadhaarStatus = new Map();
+const aadhaarLookups = new Map(); // digits -> pending Promise, so submit can wait for it
+let aadhaarTimer = null;
+let pendingAadhaar = null;        // digits waiting for the short pause before lookup
 
 // Date limits: no future dates, nothing older than 120 years
 const today = new Date();
@@ -35,7 +39,7 @@ const validators = {
     if (!d) return "Please enter your Aadhaar number.";
     if (d.length < 12) return `Aadhaar must be 12 digits (${d.length}/12).`;
     if (!isValidAadhaar(d)) return "This doesn't look like a valid Aadhaar number. Please check.";
-    if (registeredAadhaars.has(d)) return "Member already registered";
+    if (aadhaarStatus.get(d) === "taken") return "Member already registered";
     return "";
   },
   phone(v) {
@@ -68,10 +72,20 @@ function setFieldState(key, showError) {
   const field = input.closest(".field");
   const msg = document.getElementById(`${key}-msg`);
   const error = validators[key](input.value);
+  const digits = onlyDigits(input.value);
+  const status = key !== "aadhaar" ? null
+    : aadhaarStatus.get(digits) || (pendingAadhaar === digits ? "checking" : null);
+  // "Already registered" shows straight away, even before the field is left
+  if (status === "taken") showError = true;
 
-  field.classList.remove("is-valid", "is-invalid");
+  field.classList.remove("is-valid", "is-invalid", "is-checking");
   input.removeAttribute("aria-invalid");
 
+  if (!error && status === "checking") {
+    field.classList.add("is-checking");
+    msg.textContent = "Checking if already registered…";
+    return true;
+  }
   if (error && showError) {
     field.classList.add("is-invalid");
     input.setAttribute("aria-invalid", "true");
@@ -114,6 +128,50 @@ Object.keys(inputs).forEach((key) => {
   input.addEventListener("change", () => setFieldState(key, touched.has(key)));
 });
 
+/* ---------- Live duplicate check: ask the sheet once all 12 digits are in ---------- */
+function lookupAadhaar(d) {
+  if (aadhaarLookups.has(d)) return aadhaarLookups.get(d);
+  aadhaarStatus.set(d, "checking");
+  const p = callApi({ action: "check", aadhaar: d })
+    .then((res) => {
+      if (res.ok) aadhaarStatus.set(d, res.registered ? "taken" : "free");
+      else aadhaarStatus.delete(d); // e.g. older script without "check": fall back to the check on submit
+    })
+    .catch(() => aadhaarStatus.delete(d)) // offline: the check on submit still protects us
+    .finally(() => {
+      aadhaarLookups.delete(d);
+      // Only update the field if the member hasn't typed a different number meanwhile
+      if (onlyDigits(inputs.aadhaar.value) === d) setFieldState("aadhaar", touched.has("aadhaar"));
+    });
+  aadhaarLookups.set(d, p);
+  return p;
+}
+
+// Short pause after the 12th digit so quick edits or a paste don't fire several lookups
+inputs.aadhaar.addEventListener("input", () => {
+  clearTimeout(aadhaarTimer);
+  pendingAadhaar = null;
+  const d = onlyDigits(inputs.aadhaar.value);
+  if (d.length !== 12 || !isValidAadhaar(d) || aadhaarStatus.has(d)) return;
+  pendingAadhaar = d;
+  setFieldState("aadhaar", touched.has("aadhaar"));
+  aadhaarTimer = setTimeout(() => {
+    pendingAadhaar = null;
+    lookupAadhaar(d);
+  }, 300);
+});
+
+/** Before submitting, finish any lookup that is waiting or still running. */
+async function settleAadhaarLookup() {
+  const d = onlyDigits(inputs.aadhaar.value);
+  if (pendingAadhaar === d) {
+    clearTimeout(aadhaarTimer);
+    pendingAadhaar = null;
+    lookupAadhaar(d);
+  }
+  if (aadhaarLookups.has(d)) await aadhaarLookups.get(d);
+}
+
 consent.addEventListener("change", () => {
   if (consent.checked) document.getElementById("consent-msg").textContent = "";
 });
@@ -129,6 +187,14 @@ toggleBtn.addEventListener("click", () => {
 /* ---------- Submit ---------- */
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
+  if (submitBtn.disabled) return;
+
+  // If the "already registered?" lookup is still running, wait for its answer first
+  if (pendingAadhaar || aadhaarLookups.size) {
+    setLoading(true);
+    await settleAadhaarLookup();
+    setLoading(false);
+  }
 
   let firstInvalid = null;
   Object.keys(inputs).forEach((key) => {
@@ -163,7 +229,7 @@ form.addEventListener("submit", async (e) => {
     // Same Aadhaar already in the sheet: show it on the Aadhaar field itself.
     // (The regex also catches the older script's wording.)
     if (!res.ok && (res.code === "DUPLICATE_AADHAAR" || /already registered/i.test(res.error || ""))) {
-      registeredAadhaars.add(data.aadhaar);
+      aadhaarStatus.set(data.aadhaar, "taken");
       touched.add("aadhaar");
       setFieldState("aadhaar", true);
       inputs.aadhaar.focus();
@@ -171,6 +237,7 @@ form.addEventListener("submit", async (e) => {
       return;
     }
     if (!res.ok) throw new Error(res.error || "Registration failed.");
+    aadhaarStatus.set(data.aadhaar, "taken"); // registering the same person again is now a duplicate
     showSuccess(data.name, res.memberId);
   } catch (err) {
     toast(err.message === "Failed to fetch" ? "Network error. Check your connection and try again." : err.message, "error");

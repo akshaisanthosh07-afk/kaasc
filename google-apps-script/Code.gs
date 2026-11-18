@@ -25,6 +25,7 @@ function doPost(e) {
     return json({ ok: false, error: 'Invalid request.' });
   }
   try {
+    if (body.action === 'check') return json(checkAadhaar(body.aadhaar));
     if (body.action === 'register') return json(register(body.data || {}));
     if (body.action === 'list') return json(listMembers(body.key));
     if (body.action === 'delete') return json(deleteMember(body.key, body.id));
@@ -36,6 +37,21 @@ function doPost(e) {
 }
 
 /* ---------- Actions ---------- */
+
+/** Used by the form while the member types, so it can warn before they press Register. */
+function checkAadhaar(aadhaar) {
+  aadhaar = String(aadhaar || '').replace(/\D/g, '');
+  if (!isValidAadhaar(aadhaar)) return { ok: false, error: 'Please enter a valid Aadhaar number.' };
+  return { ok: true, registered: isAadhaarRegistered(getSheet(), aadhaar) };
+}
+
+function isAadhaarRegistered(sheet, aadhaar) {
+  const last = sheet.getLastRow();
+  if (last < 2) return false;
+  const existing = sheet.getRange(2, 4, last - 1, 1).getValues();
+  return existing.some(function (r) { return String(r[0]).replace(/\D/g, '') === aadhaar; });
+}
+
 function register(data) {
   const name = String(data.name || '').trim().replace(/\s+/g, ' ');
   const aadhaar = String(data.aadhaar || '').replace(/\D/g, '');
@@ -61,11 +77,8 @@ function register(data) {
 
     // Aadhaar must be unique: one membership per Aadhaar number.
     // Checked inside the lock, so two people submitting at once can't both get through.
-    if (last > 1) {
-      const existing = sheet.getRange(2, 4, last - 1, 1).getValues();
-      if (existing.some(function (r) { return String(r[0]).replace(/\D/g, '') === aadhaar; })) {
-        return { ok: false, code: 'DUPLICATE_AADHAAR', error: 'Member already registered' };
-      }
+    if (isAadhaarRegistered(sheet, aadhaar)) {
+      return { ok: false, code: 'DUPLICATE_AADHAAR', error: 'Member already registered' };
     }
 
     const props = PropertiesService.getScriptProperties();

@@ -279,6 +279,14 @@ code { background: rgba(0,0,0,.06); padding: 1px 6px; border-radius: 4px; font-s
 .is-invalid .msg, .consent-msg { color: var(--danger); }
 .is-valid .msg { color: var(--success); }
 
+/* Aadhaar "Checking if already registered…" state */
+.is-checking .msg { color: var(--brand-600); display: flex; align-items: center; gap: 8px; }
+.is-checking .msg::before {
+  content: ""; width: 12px; height: 12px; flex: none; border-radius: 50%;
+  border: 2px solid var(--brand-100); border-top-color: var(--brand);
+  animation: spin .7s linear infinite;
+}
+
 .hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
 
 /* Consent checkbox */
