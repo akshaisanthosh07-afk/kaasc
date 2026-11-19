@@ -2,7 +2,7 @@
 applyBranding();
 
 const SESSION_KEY = "club_admin_key";
-const state = { members: [], sortKey: "timestamp", sortDir: "desc", query: "", ageRange: "", revealed: new Set() };
+const state = { members: [], sortKey: "timestamp", sortDir: "desc", query: "", ageRange: "", revealed: new Set(), expanded: new Set() };
 
 const $ = (id) => document.getElementById(id);
 const loginView = $("loginView");
@@ -182,14 +182,23 @@ function render() {
 
   tbody.innerHTML = list.map((m) => {
     const shown = state.revealed.has(m.id);
+    const open = state.expanded.has(m.id);
+    const ageText = isNaN(m.age) ? "" : `<span class="m-age">${m.age} yrs</span>`;
+    // On phones the member cell is a button: tap to open/close the full details
     return `
-      <tr>
+      <tr class="${open ? "open" : ""}">
         <td>
-          <div class="member-cell">
+          <button type="button" class="member-cell" data-toggle="${escapeHtml(m.id)}" aria-expanded="${open}">
             <span class="avatar" style="background:${avatarColor(m.name)}">${escapeHtml(initials(m.name))}</span>
-            <div><strong>${escapeHtml(m.name)}</strong><small>${escapeHtml(m.id)}</small></div>
-          </div>
+            <span class="m-text">
+              <strong>${escapeHtml(m.name)}</strong>
+              <small>${escapeHtml(m.id)}</small>
+              <small class="m-meta"><span class="m-phone">${escapeHtml(formatPhone(m.phone))}</span>${ageText}</small>
+            </span>
+            <svg class="m-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
         </td>
+        <td class="m-only" data-label="Member ID">${escapeHtml(m.id)}</td>
         <td class="mono" data-label="Aadhaar">
           <span>${shown ? escapeHtml(formatAadhaar(m.aadhaar)) : escapeHtml(maskAadhaar(m.aadhaar))}<button class="reveal" data-id="${escapeHtml(m.id)}">${shown ? "Hide" : "Show"}</button></span>
         </td>
@@ -215,12 +224,34 @@ function renderSkeleton() {
 $("tbody").addEventListener("click", (e) => {
   const del = e.target.closest(".del-btn");
   if (del) return openDeleteDialog(del.dataset.del);
+  const toggle = e.target.closest("[data-toggle]");
+  if (toggle) {
+    const id = toggle.dataset.toggle;
+    state.expanded.has(id) ? state.expanded.delete(id) : state.expanded.add(id);
+    const tr = toggle.closest("tr");
+    tr.classList.toggle("open", state.expanded.has(id));
+    toggle.setAttribute("aria-expanded", state.expanded.has(id));
+    return;
+  }
   const btn = e.target.closest(".reveal");
   if (!btn) return;
   const id = btn.dataset.id;
   state.revealed.has(id) ? state.revealed.delete(id) : state.revealed.add(id);
   render();
 });
+
+/* ---------- Phone view: grid (small tiles) or list (compact rows) ---------- */
+const VIEW_KEY = "club_admin_view";
+function setView(view) {
+  if (view !== "grid" && view !== "list") view = "grid";
+  const panel = $("membersPanel");
+  panel.classList.toggle("view-grid", view === "grid");
+  panel.classList.toggle("view-list", view === "list");
+  document.querySelectorAll(".view-btn").forEach((b) => b.setAttribute("aria-pressed", b.dataset.view === view));
+  try { localStorage.setItem(VIEW_KEY, view); } catch {} // just a convenience; fine if storage is blocked
+}
+document.querySelectorAll(".view-btn").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
+setView((() => { try { return localStorage.getItem(VIEW_KEY); } catch { return null; } })());
 
 /* ---------- Delete member ---------- */
 const deleteDialog = $("deleteDialog");
