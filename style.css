@@ -486,8 +486,6 @@ tbody tr:last-child td { border-bottom: 0; }
 .member-cell strong { display: block; font-weight: 600; }
 .member-cell small { color: var(--muted); font-size: 12.5px; }
 .mono { font-variant-numeric: tabular-nums; letter-spacing: .02em; }
-.reveal { border: 0; background: none; color: var(--brand); cursor: pointer; font-size: 12.5px; font-weight: 600; padding: 2px 6px; border-radius: 6px; margin-left: 4px; }
-.reveal:hover { background: var(--brand-50); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* Delete button in each member row */

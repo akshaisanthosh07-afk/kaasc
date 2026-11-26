@@ -78,24 +78,34 @@ function demoSave(list) {
   try { localStorage.setItem(DEMO_STORE_KEY, JSON.stringify(list)); } catch {}
 }
 
+// Demo copy of the server's rule: keep a fingerprint + last 4 digits, never the full Aadhaar
+async function demoFingerprint(aadhaar) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("demo:" + aadhaar));
+  return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 async function demoApi({ action, data, key, id, aadhaar }) {
   await new Promise((r) => setTimeout(r, 600)); // simulate network
   const list = demoLoad();
   if (action === "check") {
-    return { ok: true, registered: list.some((m) => m.aadhaar === aadhaar) };
+    const fp = await demoFingerprint(aadhaar);
+    return { ok: true, registered: list.some((m) => m.aadhaarFingerprint === fp) };
   }
   if (action === "register") {
-    if (list.some((m) => m.aadhaar === data.aadhaar)) {
+    const fp = await demoFingerprint(data.aadhaar);
+    if (list.some((m) => m.aadhaarFingerprint === fp)) {
       return { ok: false, code: "DUPLICATE_AADHAAR", error: "Member already registered" };
     }
     const id = `${CONFIG.CLUB_NAME.toUpperCase().replace(/\s+/g, "")}-${String(list.length + 1).padStart(4, "0")}`;
-    list.push({ id, timestamp: new Date().toISOString(), ...data, age: calcAge(data.dob) });
+    const { aadhaar: full, ...rest } = data;
+    list.push({ id, timestamp: new Date().toISOString(), ...rest,
+      aadhaarLast4: full.slice(-4), aadhaarFingerprint: fp, age: calcAge(data.dob) });
     demoSave(list);
     return { ok: true, memberId: id };
   }
   if (action === "list") {
     if (key !== CONFIG.DEMO_ADMIN_KEY) return { ok: false, error: "Invalid admin key." };
-    return { ok: true, members: list };
+    return { ok: true, members: list.map(({ aadhaarFingerprint, ...m }) => m) };
   }
   if (action === "delete") {
     if (key !== CONFIG.DEMO_ADMIN_KEY) return { ok: false, error: "Invalid admin key." };

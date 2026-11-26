@@ -2,7 +2,7 @@
 applyBranding();
 
 const SESSION_KEY = "club_admin_key";
-const state = { members: [], sortKey: "timestamp", sortDir: "desc", query: "", ageRange: "", revealed: new Set(), expanded: new Set() };
+const state = { members: [], sortKey: "timestamp", sortDir: "desc", query: "", ageRange: "", expanded: new Set() };
 
 const $ = (id) => document.getElementById(id);
 const loginView = $("loginView");
@@ -57,7 +57,6 @@ function showDashboard() {
 $("logoutBtn").addEventListener("click", () => {
   setKey(null);
   state.members = [];
-  state.revealed.clear();
   $("adminKey").value = "";
   dashView.hidden = true;
   loginView.hidden = false;
@@ -71,7 +70,8 @@ async function loadMembers(key, fromLogin = false) {
     if (!res.ok) throw new Error(res.error || "Could not load members.");
     state.members = (res.members || []).map((m) => ({
       ...m,
-      aadhaar: onlyDigits(m.aadhaar),
+      // Only the last 4 digits are kept (an older script sent the full number: cut it here)
+      aadhaarLast4: onlyDigits(m.aadhaarLast4 ?? m.aadhaar).slice(-4),
       phone: onlyDigits(m.phone),
       age: Number(m.age) || calcAge(m.dob),
     }));
@@ -114,7 +114,7 @@ function visibleMembers() {
       String(m.name).toLowerCase().includes(q) ||
       String(m.id).toLowerCase().includes(q) ||
       (qDigits && m.phone.includes(qDigits)) ||
-      (qDigits.length >= 4 && m.aadhaar.endsWith(qDigits))
+      ((qDigits.length === 4 || qDigits.length === 12) && m.aadhaarLast4 === qDigits.slice(-4))
     );
   });
   const dir = state.sortDir === "asc" ? 1 : -1;
@@ -181,7 +181,6 @@ function render() {
   empty.hidden = true;
 
   tbody.innerHTML = list.map((m) => {
-    const shown = state.revealed.has(m.id);
     const open = state.expanded.has(m.id);
     const ageText = isNaN(m.age) ? "" : `<span class="m-age">${m.age} yrs</span>`;
     // On phones the member cell is a button: tap to open/close the full details
@@ -200,7 +199,7 @@ function render() {
         </td>
         <td class="m-only" data-label="Member ID">${escapeHtml(m.id)}</td>
         <td class="mono" data-label="Aadhaar">
-          <span>${shown ? escapeHtml(formatAadhaar(m.aadhaar)) : escapeHtml(maskAadhaar(m.aadhaar))}<button class="reveal" data-id="${escapeHtml(m.id)}">${shown ? "Hide" : "Show"}</button></span>
+          <span>${escapeHtml(maskAadhaar(m.aadhaarLast4))}</span>
         </td>
         <td class="mono" data-label="Phone"><a class="tel" href="tel:+91${escapeHtml(m.phone)}">${escapeHtml(formatPhone(m.phone))}</a></td>
         <td data-label="Date of birth">${escapeHtml(formatDate(m.dob))}</td>
@@ -231,13 +230,7 @@ $("tbody").addEventListener("click", (e) => {
     const tr = toggle.closest("tr");
     tr.classList.toggle("open", state.expanded.has(id));
     toggle.setAttribute("aria-expanded", state.expanded.has(id));
-    return;
   }
-  const btn = e.target.closest(".reveal");
-  if (!btn) return;
-  const id = btn.dataset.id;
-  state.revealed.has(id) ? state.revealed.delete(id) : state.revealed.add(id);
-  render();
 });
 
 /* ---------- Phone view: grid (small tiles) or list (compact rows) ---------- */
@@ -297,7 +290,6 @@ $("delConfirm").addEventListener("click", async () => {
     const res = await callApi({ action: "delete", key: getKey(), id });
     if (!res.ok) throw new Error(res.error || "Could not delete member.");
     state.members = state.members.filter((x) => x.id !== id);
-    state.revealed.delete(id);
     deleteDialog.close();
     render();
     toast(`${m.name} was deleted`, "success");
@@ -318,8 +310,8 @@ $("exportBtn").addEventListener("click", () => {
   if (!list.length) return toast("Nothing to export", "error");
   const cell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
   const rows = [
-    ["Member ID", "Name", "Aadhaar", "Phone", "Date of Birth", "Age", "Registered On"],
-    ...list.map((m) => [m.id, m.name, "'" + m.aadhaar, "'" + m.phone, m.dob, m.age, new Date(m.timestamp).toLocaleString("en-IN")]),
+    ["Member ID", "Name", "Aadhaar (last 4)", "Phone", "Date of Birth", "Age", "Registered On"],
+    ...list.map((m) => [m.id, m.name, maskAadhaar(m.aadhaarLast4), "'" + m.phone, m.dob, m.age, new Date(m.timestamp).toLocaleString("en-IN")]),
   ];
   const csv = "﻿" + rows.map((r) => r.map(cell).join(",")).join("\r\n");
   const a = document.createElement("a");

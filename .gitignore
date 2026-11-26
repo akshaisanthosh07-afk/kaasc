@@ -2,3 +2,6 @@
 .vercel/
 bg.html
 bg_files/
+
+# Member exports contain personal data: never commit them
+*.csv

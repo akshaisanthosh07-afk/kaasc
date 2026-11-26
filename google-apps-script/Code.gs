@@ -4,13 +4,29 @@
  * Paste this whole file into Extensions → Apps Script of your Google Sheet.
  * Set your admin key in Project Settings → Script Properties:
  *     Property: ADMIN_KEY     Value: <your secret key>
- * Then Deploy → New deployment → Web app (Execute as: Me, Who has access: Anyone).
+ * Then run `setup` once from the editor, and
+ * Deploy → New deployment → Web app (Execute as: Me, Who has access: Anyone).
  * See README.md for step-by-step instructions.
+ *
+ * Aadhaar privacy: the full Aadhaar number is never stored. The sheet keeps
+ *   - the last 4 digits (to tell members apart), and
+ *   - a fingerprint (HMAC-SHA256 with the secret AADHAAR_SECRET script property),
+ *     used only to block duplicate registrations. It can't be turned back into the number.
+ * NEVER delete or change AADHAAR_SECRET once members are registered:
+ * without it, existing members can no longer be matched and duplicates get through.
  */
 
 const SHEET_NAME = 'Members';
 const ID_PREFIX = 'KAASC';    // Member IDs look like KAASC-0001
-const HEADERS = ['Member ID', 'Registered On', 'Name', 'Aadhaar', 'Phone', 'Date of Birth', 'Age'];
+const HEADERS = ['Member ID', 'Registered On', 'Name', 'Aadhaar (last 4)', 'Phone', 'Date of Birth', 'Age', 'Aadhaar Fingerprint'];
+const COL_LAST4 = 4;
+const COL_FINGERPRINT = 8;
+
+// Live "already registered?" lookups allowed per minute (all visitors together)
+const CHECK_LIMIT_PER_MINUTE = 60;
+// Wrong admin keys allowed before admin login is locked, and for how long
+const ADMIN_MAX_FAILS = 5;
+const ADMIN_LOCK_SECONDS = 15 * 60;
 
 /* ---------- Entry points ---------- */
 function doGet() {
@@ -31,7 +47,7 @@ function doPost(e) {
     if (body.action === 'delete') return json(deleteMember(body.key, body.id));
     return json({ ok: false, error: 'Unknown action.' });
   } catch (err) {
-    console.error(err);
+    console.error(err && err.message); // never log request bodies: they contain Aadhaar numbers
     return json({ ok: false, error: 'Something went wrong. Please try again.' });
   }
 }
@@ -42,14 +58,25 @@ function doPost(e) {
 function checkAadhaar(aadhaar) {
   aadhaar = String(aadhaar || '').replace(/\D/g, '');
   if (!isValidAadhaar(aadhaar)) return { ok: false, error: 'Please enter a valid Aadhaar number.' };
-  return { ok: true, registered: isAadhaarRegistered(getSheet(), aadhaar) };
+  // Limit lookups so this can't be used to test lots of numbers.
+  // The form treats this as "couldn't check"; the check on Register still blocks duplicates.
+  if (!allowCheck()) return { ok: false, code: 'RATE_LIMITED', error: 'Too many checks. Please try again shortly.' };
+  const fp = aadhaarFingerprint(aadhaar);
+  if (!fp) return notSetUp();
+  return { ok: true, registered: isAadhaarRegistered(getSheet(), aadhaar, fp) };
 }
 
-function isAadhaarRegistered(sheet, aadhaar) {
+/** True if this Aadhaar is already in the sheet (matched by fingerprint). */
+function isAadhaarRegistered(sheet, aadhaar, fp) {
   const last = sheet.getLastRow();
   if (last < 2) return false;
-  const existing = sheet.getRange(2, 4, last - 1, 1).getValues();
-  return existing.some(function (r) { return String(r[0]).replace(/\D/g, '') === aadhaar; });
+  const rows = sheet.getRange(2, COL_LAST4, last - 1, COL_FINGERPRINT - COL_LAST4 + 1).getValues();
+  const iFp = COL_FINGERPRINT - COL_LAST4;
+  return rows.some(function (r) {
+    if (String(r[iFp]) === fp) return true;
+    // Old row that `setup` hasn't converted yet (still holds the full number)
+    return String(r[0]).replace(/\D/g, '') === aadhaar;
+  });
 }
 
 function register(data) {
@@ -69,6 +96,10 @@ function register(data) {
     return { ok: false, error: 'Please enter a valid date of birth.' };
   }
 
+  // Refuse rather than store the number unprotected
+  const fp = aadhaarFingerprint(aadhaar);
+  if (!fp) return notSetUp();
+
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
@@ -77,7 +108,7 @@ function register(data) {
 
     // Aadhaar must be unique: one membership per Aadhaar number.
     // Checked inside the lock, so two people submitting at once can't both get through.
-    if (isAadhaarRegistered(sheet, aadhaar)) {
+    if (isAadhaarRegistered(sheet, aadhaar, fp)) {
       return { ok: false, code: 'DUPLICATE_AADHAAR', error: 'Member already registered' };
     }
 
@@ -87,21 +118,29 @@ function register(data) {
     const memberId = ID_PREFIX + '-' + ('0000' + next).slice(-4);
 
     // Leading apostrophe keeps numbers/dates stored as plain text
-    sheet.appendRow([memberId, new Date(), name, "'" + aadhaar, "'" + phone, "'" + dob, age]);
+    sheet.appendRow([memberId, new Date(), name, "'" + aadhaar.slice(-4), "'" + phone, "'" + dob, age, "'" + fp]);
     return { ok: true, memberId: memberId };
   } finally {
     lock.releaseLock();
   }
 }
 
-/** Returns an error response if the admin key is wrong, otherwise null. */
+/** Returns an error response if the admin key is wrong or login is locked, otherwise null. */
 function checkAdmin(key) {
   const adminKey = PropertiesService.getScriptProperties().getProperty('ADMIN_KEY');
   if (!adminKey) return { ok: false, error: 'Admin key is not set up yet. Add ADMIN_KEY in Script Properties.' };
+
+  const cache = CacheService.getScriptCache();
+  const fails = Number(cache.get('admin_fails') || 0);
+  if (fails >= ADMIN_MAX_FAILS) {
+    return { ok: false, code: 'LOCKED', error: 'Too many wrong admin keys. Admin login is locked for 15 minutes.' };
+  }
   if (!key || String(key) !== adminKey) {
+    cache.put('admin_fails', String(fails + 1), ADMIN_LOCK_SECONDS);
     Utilities.sleep(800); // slow down guessing
     return { ok: false, error: 'Invalid admin key.' };
   }
+  if (fails) cache.remove('admin_fails');
   return null;
 }
 
@@ -139,7 +178,7 @@ function listMembers(key) {
   const last = sheet.getLastRow();
   if (last < 2) return { ok: true, members: [] };
 
-  const rows = sheet.getRange(2, 1, last - 1, HEADERS.length).getValues();
+  const rows = sheet.getRange(2, 1, last - 1, 7).getValues();
   const members = rows
     .filter(function (r) { return r[0]; })
     .map(function (r) {
@@ -150,13 +189,78 @@ function listMembers(key) {
         id: String(r[0]),
         timestamp: r[1] instanceof Date ? r[1].toISOString() : String(r[1]),
         name: String(r[2]),
-        aadhaar: String(r[3]),
+        aadhaarLast4: String(r[3]).replace(/\D/g, '').slice(-4), // only ever the last 4
         phone: String(r[4]),
         dob: dob,
         age: calcAge(dob),
       };
     });
   return { ok: true, members: members };
+}
+
+/* ---------- Aadhaar protection ---------- */
+
+/** HMAC-SHA256 of the Aadhaar number with the secret key, as hex. Null if the secret is missing. */
+function aadhaarFingerprint(aadhaar) {
+  const secret = PropertiesService.getScriptProperties().getProperty('AADHAAR_SECRET');
+  if (!secret) return null;
+  const bytes = Utilities.computeHmacSha256Signature(aadhaar, secret);
+  return bytes.map(function (b) { return ('0' + (b & 0xff).toString(16)).slice(-2); }).join('');
+}
+
+function notSetUp() {
+  return { ok: false, error: 'Registration is not set up yet. Please contact the club.' };
+}
+
+/** Counts live lookups per minute, for all visitors together. */
+function allowCheck() {
+  const cache = CacheService.getScriptCache();
+  const k = 'checks_' + Math.floor(Date.now() / 60000);
+  const n = Number(cache.get(k) || 0) + 1;
+  cache.put(k, String(n), 120);
+  return n <= CHECK_LIMIT_PER_MINUTE;
+}
+
+/** Creates AADHAAR_SECRET if it doesn't exist. Never replaces an existing one. */
+function ensureAadhaarSecret() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('AADHAAR_SECRET')) return false;
+  props.setProperty('AADHAAR_SECRET', Utilities.getUuid() + Utilities.getUuid());
+  return true;
+}
+
+/**
+ * Converts old rows that still hold the full Aadhaar number:
+ * writes the fingerprint, then replaces the number with its last 4 digits.
+ * Safe to run more than once.
+ */
+function migrateAadhaar() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sheet = getSheet();
+    sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS])
+      .setFontWeight('bold').setBackground('#4f46e5').setFontColor('#ffffff');
+    const last = sheet.getLastRow();
+    if (last < 2) return 0;
+    const range = sheet.getRange(2, COL_LAST4, last - 1, COL_FINGERPRINT - COL_LAST4 + 1);
+    const rows = range.getValues();
+    const iFp = COL_FINGERPRINT - COL_LAST4;
+    let converted = 0;
+    rows.forEach(function (r) {
+      const digits = String(r[0]).replace(/\D/g, '');
+      if (digits.length !== 12) return; // already converted (or empty)
+      const fp = aadhaarFingerprint(digits);
+      if (!fp) throw new Error('AADHAAR_SECRET is missing.');
+      r[iFp] = "'" + fp;
+      r[0] = "'" + digits.slice(-4);
+      converted++;
+    });
+    if (converted) range.setValues(rows);
+    return converted;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /* ---------- Helpers ---------- */
@@ -198,8 +302,25 @@ function json(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
-/* Run this once from the editor to create the sheet and test permissions. */
+/* ---------- Run these from the editor ---------- */
+
+/**
+ * Run once after pasting this code (safe to run again):
+ * creates the sheet, creates AADHAAR_SECRET if missing, and converts old rows.
+ */
 function setup() {
   getSheet();
-  Logger.log('Sheet ready. Now set ADMIN_KEY in Project Settings → Script Properties.');
+  const created = ensureAadhaarSecret();
+  const converted = migrateAadhaar();
+  Logger.log((created ? 'Created AADHAAR_SECRET (never delete or change it). ' : 'AADHAAR_SECRET already set. ') +
+    'Converted ' + converted + ' old row(s) to last 4 digits + fingerprint.');
+  if (!PropertiesService.getScriptProperties().getProperty('ADMIN_KEY')) {
+    Logger.log('Now set ADMIN_KEY in Project Settings → Script Properties.');
+  }
+}
+
+/** If admin login got locked by wrong keys, run this to unlock it straight away. */
+function unlockAdmin() {
+  CacheService.getScriptCache().remove('admin_fails');
+  Logger.log('Admin login unlocked.');
 }

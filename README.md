@@ -29,7 +29,8 @@ Until you connect Google Sheets the site runs in **demo mode**, where data is sa
 2. Delete the code that's there, paste everything from `google-apps-script/Code.gs`, and click **Save**.
 3. Pick `setup` in the function dropdown and click **Run**. Allow the permissions when asked.
    (If you see "Google hasn't verified this app", click *Advanced → Go to project*. It's your own script.)
-   A **Members** tab with headers appears in your sheet.
+   A **Members** tab with headers appears in your sheet, and a secret `AADHAAR_SECRET` is created
+   under Script Properties (see "How Aadhaar numbers are protected" below).
 4. Click **Project Settings** (gear icon) → **Script Properties** → **Add script property**:
    - Property: `ADMIN_KEY`
    - Value: your secret admin key. This is your dashboard password. Never write it in any file in this project.
@@ -52,7 +53,10 @@ That's it. New registrations now show up in the sheet, and `admin.html` reads th
 ### Updating the script (for example, to switch on deleting members)
 1. Open your sheet → **Extensions → Apps Script**.
 2. Select all the code in the editor, delete it, paste the new `google-apps-script/Code.gs`, and click **Save**.
-3. **Deploy → Manage deployments** → click the ✏️ pencil → **Version: New version** → **Deploy**.
+3. Pick `setup` in the function dropdown and click **Run**. It's safe to run every time you update.
+   It creates `AADHAAR_SECRET` if it's missing and converts any old rows that still hold full Aadhaar numbers.
+   Check the log at the bottom says how many rows it converted.
+4. **Deploy → Manage deployments** → click the ✏️ pencil → **Version: New version** → **Deploy**.
    Don't choose "New deployment": that creates a different URL.
 
 ## Deleting a member
@@ -92,7 +96,31 @@ What the Vercel files do:
 To test locally, open the folder with any static server (for example `npx http-server`). Double-clicking `index.html` also works for a quick look.
 
 ## Privacy and security notes
-- Aadhaar is sensitive personal data. The dashboard masks it (`XXXX XXXX 1234`) until you click **Show**.
+- Aadhaar is sensitive personal data, so the full number is **never stored**. See below.
 - The admin key is checked **on Google's server**, never in the website code, so viewing the page source doesn't reveal it.
 - Keep the Google Sheet **private**. Don't share it with "Anyone with the link".
 - The form checks Aadhaar with the official Verhoeff checksum, so typos are caught. It also blocks duplicate Aadhaar registrations and filters spam bots with a hidden honeypot field.
+
+## How Aadhaar numbers are protected
+The member types their full Aadhaar so it can be checked, but the sheet only keeps:
+- **Aadhaar (last 4):** shown as `XXXX XXXX 1234` on the dashboard and in the CSV export.
+- **Aadhaar Fingerprint:** a code made from the number and the secret `AADHAAR_SECRET` (HMAC-SHA256).
+  The same number always gives the same code, so duplicate registrations are still blocked,
+  but the code can't be turned back into the number.
+
+Nobody, including the admin, can see a member's full Aadhaar after they register.
+
+**Never delete or change `AADHAAR_SECRET`** in Script Properties. Without the same secret,
+existing members can't be matched any more and the same Aadhaar could register twice.
+Anyone with edit access to the Apps Script can read it, so keep that access to trusted people.
+
+Other limits the script applies:
+- The live "already registered?" check allows 60 lookups a minute across all visitors.
+  Past that, the form just skips the early warning; pressing **Register** still blocks duplicates.
+- After 5 wrong admin keys, admin login is locked for 15 minutes for everyone.
+  To unlock straight away, run `unlockAdmin` from the Apps Script editor.
+
+**After switching an existing sheet over**, old full numbers can still be found in places the script can't clean:
+- **File → Version history** in the sheet. Google doesn't let you delete history, so anyone with
+  edit access can still open older versions. Keep edit access to as few people as possible.
+- CSV files downloaded before the change. Delete them.
